@@ -53,6 +53,9 @@ func (h *HashMap) Get(key []byte) (Entry, bool) {
 
 	for curr != nil {
 		if bytes.Equal(curr.entry.Key, key) {
+			if curr.entry.Tombstone {
+				return Entry{}, false
+			}
 			return curr.entry, true
 		}
 		curr = curr.next
@@ -64,22 +67,34 @@ func (h *HashMap) Get(key []byte) (Entry, bool) {
 // Delete
 func (h *HashMap) Delete(key []byte) bool {
 	index := hash(key)
+	curr := h.array[index]
 
-	if h.array[index] != nil && bytes.Equal(h.array[index].entry.Key, key) {
-		h.array[index] = h.array[index].next
-		h.size--
-		return true
-	}
-
-	prev := h.array[index]
-	for prev != nil && prev.next != nil {
-		if bytes.Equal(prev.next.entry.Key, key) {
-			prev.next = prev.next.next
-			h.size--
+	for curr != nil {
+		if bytes.Equal(curr.entry.Key, key) {
+			curr.entry.Tombstone = true
+			curr.entry.Value = nil
 			return true
 		}
-		prev = prev.next
+		curr = curr.next
 	}
+
+	// previously, physical deletion
+	//
+	// if h.array[index] != nil && bytes.Equal(h.array[index].entry.Key, key) {
+	// 	h.array[index] = h.array[index].next
+	// 	h.size--
+	// 	return true
+	// }
+
+	// prev := h.array[index]
+	// for prev != nil && prev.next != nil {
+	// 	if bytes.Equal(prev.next.entry.Key, key) {
+	// 		prev.next = prev.next.next
+	// 		h.size--
+	// 		return true
+	// 	}
+	// 	prev = prev.next
+	// }
 
 	return false
 }
