@@ -4,28 +4,51 @@ import (
 	"bytes"
 )
 
+// arraysize is equal to MemTableSize
+// this might change to improve code efficiency
 const ArraySize = MemtableSize
 
-//		func (reciever) nameOfFunction (paramaters) returnValue {}
-//			 ^ like the this keyword
-//				used only in methods
-//				when used, function is called like:	this.nameOfFunction
-
-// HashMap structure
+// HashMap
+// array - list of elements held in buckets
+// size - number of non-tombstone elements
 type HashMap struct {
 	array [ArraySize]*bucketElem
 	size  int
 }
 
-// bucket structure
+// HashMap element held in bucket
+// entry - MemTable entry
+// next - pointer to next element ih bucket
 type bucketElem struct {
 	entry Entry
 	next  *bucketElem
 }
 
-// bucketNode structure
+// NewHashMap - Default Constructor
+// returns empty chain linked HashMap
+func NewHashMap() *HashMap {
+	return &HashMap{}
+}
 
-// Insert
+// Size
+// returns number of non-tombstone elements
+func (h *HashMap) Size() int {
+	return h.size
+}
+
+// Hash - hashes key into index
+// key - array of bytes
+// returns an integer/index to HashMap
+func hash(key []byte) int {
+	sum := 0
+	for _, b := range key {
+		sum += int(b)
+	}
+	return sum % ArraySize
+}
+
+// Put adds an element to the HashMap
+// entry - the MemTable element we're inserting/putting in
 func (h *HashMap) Put(entry Entry) {
 	index := hash(entry.Key)
 	curr := h.array[index]
@@ -46,7 +69,9 @@ func (h *HashMap) Put(entry Entry) {
 	h.size++
 }
 
-// Get
+// Get tries to find our entry by key
+// key - array of bytes, Key variable of some Entry struct
+// returns the MemTable entry or an empty entry, and a success/fail flag as bool
 func (h *HashMap) Get(key []byte) (Entry, bool) {
 	index := hash(key)
 	curr := h.array[index]
@@ -64,51 +89,25 @@ func (h *HashMap) Get(key []byte) (Entry, bool) {
 	return Entry{}, false
 }
 
-// Delete
+// Delete finds an element by key and deletes it if it exists
+// key - array of bytes, Key variable of some Entry struct
+// returns success/fail flag as bool
 func (h *HashMap) Delete(key []byte) bool {
 	index := hash(key)
 	curr := h.array[index]
 
 	for curr != nil {
 		if bytes.Equal(curr.entry.Key, key) {
+			if curr.entry.Tombstone {
+				return false
+			}
 			curr.entry.Tombstone = true
 			curr.entry.Value = nil
+			h.size--
 			return true
 		}
 		curr = curr.next
 	}
 
-	// previously, physical deletion
-	//
-	// if h.array[index] != nil && bytes.Equal(h.array[index].entry.Key, key) {
-	// 	h.array[index] = h.array[index].next
-	// 	h.size--
-	// 	return true
-	// }
-
-	// prev := h.array[index]
-	// for prev != nil && prev.next != nil {
-	// 	if bytes.Equal(prev.next.entry.Key, key) {
-	// 		prev.next = prev.next.next
-	// 		h.size--
-	// 		return true
-	// 	}
-	// 	prev = prev.next
-	// }
-
 	return false
-}
-
-// hash
-func hash(key []byte) int {
-	sum := 0
-	for _, b := range key {
-		sum += int(b)
-	}
-	return sum % ArraySize
-}
-
-// Init
-func NewHashMap() *HashMap {
-	return &HashMap{}
 }
