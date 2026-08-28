@@ -1,1 +1,8 @@
-{}
+{
+  "blockSize": 4096,
+  "recordsPerSegment": 1000,
+  "memtableMaxSize": 1000,
+  "cacheSize": 1000,
+  "walDir": "data/wal",
+  "sstableDir": "data/sstable"
+}

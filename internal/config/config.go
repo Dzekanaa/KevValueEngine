@@ -1,3 +1,4 @@
+// Package config implements loading a user defined configuration
 package config
 
 import (
