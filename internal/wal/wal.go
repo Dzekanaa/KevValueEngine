@@ -83,14 +83,49 @@ func (w *WAL) Write(key []byte, value []byte, tombstone bool) error {
 	return nil
 }
 
+// Recover reads every record from every segment (oldest first) and
+// repositions the WAL's write cursor to resume exactly where the log
+// left off, so a subsequent Write does not overwrite existing data.
+// It should be called once at startup, before any writes, and is used
+// to rebuild the Memtable on startup.
+func (w *WAL) Recover() ([]*Record, error) {
+	var records []*Record
+	segmentNum := 1
+	foundAny := false
+
+	for {
+		segRecords, lastBlock, lastOffset, recCount, err := w.readSegment(segmentNum)
+		if err != nil {
+			break
+		}
+		records = append(records, segRecords...)
+		w.currentSegment = segmentNum
+		w.blockNum = lastBlock
+		w.offset = lastOffset
+		w.recordsInSegment = recCount
+		foundAny = true
+		segmentNum++
+	}
+
+	if !foundAny {
+		w.currentSegment = 1
+		w.blockNum = 0
+		w.offset = 0
+		w.recordsInSegment = 0
+	}
+
+	return records, nil
+}
+
 // ReadAll reads every record from every WAL segment, oldest first,
-// and is used to rebuild the Memtable on startup.
+// without changing the write cursor. Use Recover instead if the WAL
+// will keep writing afterward.
 func (w *WAL) ReadAll() ([]*Record, error) {
 	var records []*Record
 
 	segmentNum := 1
 	for {
-		segRecords, err := w.readSegment(segmentNum)
+		segRecords, _, _, _, err := w.readSegment(segmentNum)
 		if err != nil {
 			break
 		}
@@ -101,54 +136,53 @@ func (w *WAL) ReadAll() ([]*Record, error) {
 	return records, nil
 }
 
-// readSegment reads every record from a single segment, block by block.
+// readSegment reads every record from a single segment, block by block,
+// and reports where writing should resume within it: the last block
+// number touched and the offset right after its last real record.
 // It returns an error if the segment's first block does not exist.
-func (w *WAL) readSegment(segmentNum int) ([]*Record, error) {
+func (w *WAL) readSegment(segmentNum int) (records []*Record, lastBlock int, lastOffset int, recordCount int, err error) {
 	path := w.segmentPath(segmentNum)
-	var records []*Record
-
 	blockNum := 0
-	var pending []byte
 
 	for {
-		block, err := w.bm.ReadBlock(path, blockNum)
-		if err != nil {
+		block, readErr := w.bm.ReadBlock(path, blockNum)
+		if readErr != nil {
 			if blockNum == 0 {
-				return nil, err
+				return nil, 0, 0, 0, readErr
 			}
 			break
 		}
 
-		pending = append(pending, block...)
+		offset := 0
+		for offset < len(block) {
+			remaining := block[offset:]
+			if len(remaining) < KEY_START || isAllZero(remaining[:KEY_START]) {
+				break
+			}
 
-		for len(pending) >= KEY_START {
-			keySize := binary.BigEndian.Uint64(pending[KEY_SIZE_START:VALUE_SIZE_START])
-			valueSize := binary.BigEndian.Uint64(pending[VALUE_SIZE_START:KEY_START])
+			keySize := binary.BigEndian.Uint64(remaining[KEY_SIZE_START:VALUE_SIZE_START])
+			valueSize := binary.BigEndian.Uint64(remaining[VALUE_SIZE_START:KEY_START])
 			recordLen := KEY_START + int(keySize) + int(valueSize)
 
-			if len(pending) < recordLen {
+			if offset+recordLen > len(block) {
 				break
 			}
 
-			if isAllZero(pending[:KEY_START]) {
-				// remainder of the block is padding
-				pending = nil
-				break
-			}
-
-			record, err := Deserialize(pending[:recordLen])
-			if err != nil {
-				return nil, err
+			record, decErr := Deserialize(remaining[:recordLen])
+			if decErr != nil {
+				return nil, 0, 0, 0, decErr
 			}
 			records = append(records, record)
-
-			pending = pending[recordLen:]
+			recordCount++
+			offset += recordLen
 		}
 
+		lastBlock = blockNum
+		lastOffset = offset
 		blockNum++
 	}
 
-	return records, nil
+	return records, lastBlock, lastOffset, recordCount, nil
 }
 
 // isAllZero reports whether every byte in data is zero, used to detect
