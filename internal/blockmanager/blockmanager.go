@@ -27,12 +27,18 @@ type BlockManager struct {
 }
 
 // New creates the Block Manager: blockSize-sized blocks, backed by an
-// LRU cache holding up to cacheCapacity blocks.
-func New(blockSize int, cacheCapacity int) *BlockManager {
+// LRU cache holding up to cacheCapacity blocks. blockSize must be a
+// multiple of the OS page size.
+func New(blockSize int, cacheCapacity int) (*BlockManager, error) {
+	const pageSize = 4096
+	if blockSize%pageSize != 0 {
+		return nil, fmt.Errorf("blockmanager: block size %d is not a multiple of page size %d", blockSize, pageSize)
+	}
+
 	return &BlockManager{
 		blockSize: blockSize,
 		cache:     cache.NewLRUCache(cacheCapacity),
-	}
+	}, nil
 }
 
 // BlockSize returns the configured block size in bytes.
