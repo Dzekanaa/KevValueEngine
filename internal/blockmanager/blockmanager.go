@@ -109,3 +109,66 @@ func (bm *BlockManager) readFromDisk(path string, blockNum int) ([]byte, error) 
 
 	return block, nil
 }
+
+// WriteBlock writes data as the block with the given number in the
+// file at path, growing the file if needed. data must not exceed the
+// configured block size; if it is shorter, the rest of the block is
+// zero-padded. The cache entry for this block is refreshed so
+// subsequent reads see the new data.
+func (bm *BlockManager) WriteBlock(path string, blockNum int, data []byte) error {
+	if len(data) > bm.blockSize {
+		return fmt.Errorf("blockmanager: data length %d exceeds block size %d", len(data), bm.blockSize)
+	}
+
+	if err := bm.writeToDisk(path, blockNum, data); err != nil {
+		return err
+	}
+
+	block := make([]byte, bm.blockSize)
+	copy(block, data)
+	bm.cache.Put(cacheKey(path, blockNum), block)
+
+	return nil
+}
+
+// writeToDisk writes a block directly to disk via mmap, bypassing the
+// cache. Used internally by WriteBlock.
+func (bm *BlockManager) writeToDisk(path string, blockNum int, data []byte) error {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("blockmanager: open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("blockmanager: stat %s: %w", path, err)
+	}
+
+	offset := int64(blockNum) * int64(bm.blockSize)
+	requiredSize := offset + int64(bm.blockSize)
+
+	if info.Size() < requiredSize {
+		if err := file.Truncate(requiredSize); err != nil {
+			return fmt.Errorf("blockmanager: truncate %s: %w", path, err)
+		}
+	}
+
+	mmapFile, err := mmap.Map(file, mmap.RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("blockmanager: mmap %s: %w", path, err)
+	}
+	defer mmapFile.Unmap()
+
+	region := mmapFile[offset : offset+int64(bm.blockSize)]
+	copy(region, data)
+	for i := len(data); i < bm.blockSize; i++ {
+		region[i] = 0
+	}
+
+	if err := mmapFile.Flush(); err != nil {
+		return fmt.Errorf("blockmanager: flush %s: %w", path, err)
+	}
+
+	return nil
+}
