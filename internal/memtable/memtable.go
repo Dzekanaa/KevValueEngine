@@ -4,6 +4,7 @@ package memtable
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -14,6 +15,13 @@ const MaxSize = 1000
 // Entry represents a single key-value pair stored in the memtable.
 // Tombstone indicates this is a logical delete (key marked for deletion).
 type Entry struct {
+	Value     []byte
+	Tombstone bool
+}
+
+// SortedEntry represents a single entry retrieved in sorted order
+type SortedEntry struct {
+	Key       string
 	Value     []byte
 	Tombstone bool
 }
@@ -98,6 +106,35 @@ func (m *Memtable) Delete(key string) error {
 	return nil
 }
 
+// GetSorted returns all entries sorted by key in ascending order.
+// Used during flush to SSTable to ensure a sorted on-disk structure.
+func (m *Memtable) GetSorted() []*SortedEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Collect all keys
+	keys := make([]string, 0, len(m.data))
+	for k := range m.data {
+		keys = append(keys, k)
+	}
+
+	// Sort keys lexicographically
+	sort.Strings(keys)
+
+	// Build sorted entries
+	result := make([]*SortedEntry, len(keys))
+	for i, k := range keys {
+		entry := m.data[k]
+		result[i] = &SortedEntry{
+			Key:       k,
+			Value:     entry.Value,
+			Tombstone: entry.Tombstone,
+		}
+	}
+
+	return result
+}
+
 // IsFull returns true if the memtable has reached its maximum capacity.
 func (m *Memtable) IsFull() bool {
 	m.mu.RLock()
@@ -110,4 +147,11 @@ func (m *Memtable) Size() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.data)
+}
+
+// GetMaxSize returns the configured maximum size of the memtable.
+func (m *Memtable) GetMaxSize() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.maxSize
 }
