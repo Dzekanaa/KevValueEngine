@@ -24,4 +24,52 @@ func (m *Memtable) Flush(writer SSTableWriter) (string, error) {
 	if len(entries) == 0 {
 		return "", fmt.Errorf("cannot flush empty memtable")
 	}
+
+	// Write to SSTable
+	id, err := writer.Write(entries)
+	if err != nil {
+		return "", fmt.Errorf("failed to write SSTable: %w", err)
+	}
+
+	// Clear memtable after successful flush
+	m.Clear()
+
+	return id, nil
+}
+
+// Clear empties the memtable, discarding all current entries.
+// Called by the engine right after entries have been durably persisted
+// to an SSTable during a flush.
+func (m *Memtable) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.data = make(map[string]*Entry, m.maxSize)
+}
+
+// RecoverFromWAL loads all records from WAL and fills the memtable.
+// Ths is called during system startup to restore the most recent state
+// from the write-ahead log before the last crash.
+func (m *Memtable) RecoverFromWAL(records []WALRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, record := range records {
+		key := string(record.Key)
+
+		// Check if we have capacity (unless updating existing key)
+		_, exists := m.data[key]
+		if !exists && len(m.data) >= m.maxSize {
+			return fmt.Errorf("memtable capacity exceeded during recovery: %d / %d entries",
+				len(m.data), m.maxSize)
+		}
+
+		// Add or update the entry
+		m.data[key] = &Entry{
+			Value:     record.Value,
+			Tombstone: record.Tombstone,
+		}
+	}
+
+	return nil
 }
