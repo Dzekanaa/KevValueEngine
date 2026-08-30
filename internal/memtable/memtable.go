@@ -33,7 +33,6 @@ type Memtable struct {
 	mu      sync.RWMutex
 	data    map[string]*Entry
 	maxSize int // max number of entries before flush is needed
-	isFull  bool
 }
 
 // New creates a new Memtable with a maximum capacity of maxSize entries.
@@ -42,9 +41,8 @@ func New(maxSize int) *Memtable {
 		maxSize = MaxSize // backup default
 	}
 	return &Memtable{
-		data:    make(map[string]*Entry),
+		data:    make(map[string]*Entry, maxSize),
 		maxSize: maxSize,
-		isFull:  false,
 	}
 }
 
@@ -57,7 +55,6 @@ func (m *Memtable) Put(key string, value []byte) error {
 	// Check if key already exists (update, not insert)
 	_, exists := m.data[key]
 	if !exists && len(m.data) >= m.maxSize {
-		m.isFull = true
 		return fmt.Errorf("memtable is full: %d / %d entries", len(m.data), m.maxSize)
 	}
 
@@ -94,7 +91,6 @@ func (m *Memtable) Delete(key string) error {
 	// Check if we have space for the tombstone marker
 	_, exists := m.data[key]
 	if !exists && len(m.data) >= m.maxSize {
-		m.isFull = true
 		return fmt.Errorf("memtable is full: %d / %d entries", len(m.data), m.maxSize)
 	}
 
@@ -108,7 +104,7 @@ func (m *Memtable) Delete(key string) error {
 
 // GetSorted returns all entries sorted by key in ascending order.
 // Used during flush to SSTable to ensure a sorted on-disk structure.
-func (m *Memtable) GetSorted() []*SortedEntry {
+func (m *Memtable) GetSorted() []SortedEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -122,10 +118,10 @@ func (m *Memtable) GetSorted() []*SortedEntry {
 	sort.Strings(keys)
 
 	// Build sorted entries
-	result := make([]*SortedEntry, len(keys))
+	result := make([]SortedEntry, len(keys))
 	for i, k := range keys {
 		entry := m.data[k]
-		result[i] = &SortedEntry{
+		result[i] = SortedEntry{
 			Key:       k,
 			Value:     entry.Value,
 			Tombstone: entry.Tombstone,
@@ -139,7 +135,7 @@ func (m *Memtable) GetSorted() []*SortedEntry {
 func (m *Memtable) IsFull() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.isFull
+	return len(m.data) >= m.maxSize
 }
 
 // Size returns the current number of entries in the memtable.
