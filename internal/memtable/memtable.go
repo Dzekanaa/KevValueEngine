@@ -27,7 +27,7 @@ type SortedEntry struct {
 }
 
 // Memtable is an in-memory hash map that stores key-value pairs before
-// they are flushed to SSTable. It tracks insertion order and provides
+// they are flushed to SSTable. It provides
 // thread-safe Put, Get, and Delete operations.
 type Memtable struct {
 	mu      sync.RWMutex

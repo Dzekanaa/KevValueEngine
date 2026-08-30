@@ -173,7 +173,7 @@ func TestThreadSafety_ConcurrentWrites(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		idx := i // current loop index for the thread
 		go func() {
-			key := fmt.Sprintf("key%d", idx) // key1, key2, ..., key10
+			key := fmt.Sprintf("key%d", idx) // key0, key1, ..., key9
 			value := []byte(fmt.Sprintf("value%d", idx))
 			mt.Put(key, value)
 			done <- true
