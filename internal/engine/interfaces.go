@@ -3,7 +3,10 @@
 // startup recovery.
 package engine
 
-import "github.com/Dzekanaa/KevValueEngine/internal/memtable"
+import (
+	"github.com/Dzekanaa/KevValueEngine/internal/memtable"
+	"github.com/Dzekanaa/KevValueEngine/internal/wal"
+)
 
 // ---------------------------------------------------------------------
 // These are the contracts engine depends on. Each college implements
@@ -21,16 +24,12 @@ type WAL interface {
 
 	// ReadAll returns every record from every segment, oldest first.
 	// Used by Recover. Already implemented.
-	ReadAll() ([]*WALRecord, error)
+	ReadAll() ([]*wal.Record, error)
 
 	// Cleanup deletes every WAL segment older than the currently
 	// active one. Must only be called after a flush has durably
 	// persisted the Memtable to an SSTable — never before.
-	//
-	// Marija
-	// TODO: implement this. It can build directly on the
-	// existing DeleteSegment method: loop from segment 1 up to (not
-	// including) the current active segment and delete each one.
+	// Already implemented.
 	Cleanup() error
 }
 
