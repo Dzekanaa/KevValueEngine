@@ -191,3 +191,143 @@ func TestClear_AllowsNewInsertionsAfterClear(t *testing.T) {
 		t.Errorf("expected value2, got %s", string(value))
 	}
 }
+
+func TestRecoverFromWAL_PopulatesMemtable(t *testing.T) {
+	mt := New(100)
+
+	records := []WALRecord{
+		{Key: []byte("key1"), Value: []byte("value1"), Tombstone: false},
+		{Key: []byte("key2"), Value: []byte("value2"), Tombstone: false},
+		{Key: []byte("key3"), Value: []byte("value3"), Tombstone: true}, // deleted
+	}
+
+	err := mt.RecoverFromWAL(records)
+	if err != nil {
+		t.Fatalf("RecoverFromWAL failed: %v", err)
+	}
+
+	if mt.Size() != 3 {
+		t.Fatalf("expected 3 entries after recovery, got %d", mt.Size())
+	}
+
+	// Check normal entries
+	value, found, tombstone := mt.Get("key1")
+	if !found {
+		t.Fatal("expected to find key1")
+	}
+	if tombstone {
+		t.Fatal("expected key1 to not be tombstoned")
+	}
+	if string(value) != "value1" {
+		t.Errorf("expected value1, got %s", string(value))
+	}
+
+	// Check tombstone
+	_, found, tombstone = mt.Get("key3")
+	if !found {
+		t.Fatal("expected to find key3 with tombstone")
+	}
+	if !tombstone {
+		t.Fatal("expected key3 to be tombstoned")
+	}
+}
+
+func TestRecoverFromWAL_UpdatesExistingEntries(t *testing.T) {
+	mt := New(100)
+
+	// Pre-populate with an old value
+	mt.Put("key1", []byte("old_value"))
+
+	// Recover with updated value for same key
+	records := []WALRecord{
+		{Key: []byte("key1"), Value: []byte("new_value"), Tombstone: false},
+	}
+
+	err := mt.RecoverFromWAL(records)
+	if err != nil {
+		t.Fatalf("RecoverFromWAL failed: %v", err)
+	}
+
+	value, found, _ := mt.Get("key1")
+	if !found {
+		t.Fatal("expected to find key1")
+	}
+
+	if string(value) != "new_value" {
+		t.Errorf("expected new_value, got %s", string(value))
+	}
+}
+
+func TestRecoverFromWAL_FailsWhenCapacityExceeded(t *testing.T) {
+	mt := New(2) // Very small capacity
+
+	// Try to recover more than capacity
+	records := []WALRecord{
+		{Key: []byte("key1"), Value: []byte("value1"), Tombstone: false},
+		{Key: []byte("key2"), Value: []byte("value2"), Tombstone: false},
+		{Key: []byte("key3"), Value: []byte("value3"), Tombstone: false}, // This exceeds capacity
+	}
+
+	err := mt.RecoverFromWAL(records)
+
+	if err == nil {
+		t.Fatal("expected error when recovery exceeds capacity, got nil")
+	}
+
+	if mt.Size() != 2 {
+		t.Fatalf("expected 2 entries before capacity error, got %d", mt.Size())
+	}
+}
+
+func TestRecoverFromWAL_AllowsUpdateWhenAtCapacity(t *testing.T) {
+	mt := New(2)
+
+	// Pre-populate to capacity
+	mt.Put("key1", []byte("value1"))
+	mt.Put("key2", []byte("value2"))
+
+	// Recovery updates existing key (should work even at capacity)
+	records := []WALRecord{
+		{Key: []byte("key1"), Value: []byte("updated"), Tombstone: false},
+	}
+
+	err := mt.RecoverFromWAL(records)
+	if err != nil {
+		t.Fatalf("RecoverFromWAL update at capacity failed: %v", err)
+	}
+
+	value, _, _ := mt.Get("key1")
+	if string(value) != "updated" {
+		t.Errorf("expected updated, got %s", string(value))
+	}
+}
+
+func TestIntegration_FillAndFlush(t *testing.T) {
+	mt := New(3) // Small capacity
+
+	// Fill to capacity
+	mt.Put("key1", []byte("value1"))
+	mt.Put("key2", []byte("value2"))
+	mt.Put("key3", []byte("value3"))
+
+	if !mt.IsFull() {
+		t.Fatal("expected memtable to be full after 3 inserts")
+	}
+
+	// Flush
+	writer := &MockSSTableWriter{WriteID: "sstable_001"}
+	_, err := mt.Flush(writer)
+
+	if err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// Verify memtable is cleared
+	if mt.Size() != 0 {
+		t.Fatalf("expected empty memtable after flush, got %d entries", mt.Size())
+	}
+
+	if mt.IsFull() {
+		t.Fatal("expected memtable to not be full after flush")
+	}
+}
