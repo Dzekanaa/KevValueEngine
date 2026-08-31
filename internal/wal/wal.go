@@ -217,3 +217,20 @@ func (w *WAL) DeleteSegment(segmentNum int) error {
 	}
 	return os.Remove(w.segmentPath(segmentNum))
 }
+
+// Cleanup deletes every WAL segment older than the currently active
+// one. It must only be called after a flush has durably persisted the
+// Memtable to an SSTable — segments deleted here can no longer be
+// used for recovery. Already-removed segments are skipped so repeated
+// calls (once per flush) are safe.
+func (w *WAL) Cleanup() error {
+	for seg := 1; seg < w.currentSegment; seg++ {
+		if err := w.DeleteSegment(seg); err != nil {
+			if os.IsNotExist(err) {
+				continue // already cleaned up by a previous Flush
+			}
+			return err
+		}
+	}
+	return nil
+}
