@@ -14,7 +14,7 @@ type WALRecord struct {
 	Tombstone bool
 }
 
-// Flush persists all currecnt entries to an SSTable and then clears the memtable.
+// Flush persists all current entries to an SSTable and then clears the memtable.
 // It takes sorted entries, writes them via the provided SSTableWriter,
 // and clears the memtable after successful write.
 func (m *Memtable) Flush(writer SSTableWriter) (string, error) {
@@ -48,7 +48,7 @@ func (m *Memtable) Clear() {
 }
 
 // RecoverFromWAL loads all records from WAL and fills the memtable.
-// Ths is called during system startup to restore the most recent state
+// This is called during system startup to restore the most recent state
 // from the write-ahead log before the last crash.
 func (m *Memtable) RecoverFromWAL(records []WALRecord) error {
 	m.mu.Lock()
