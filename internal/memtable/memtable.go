@@ -131,6 +131,16 @@ func (m *Memtable) GetSorted() []SortedEntry {
 	return result
 }
 
+// Clear empties the memtable, discarding all current entries.
+// Called by the engine right after entries have been durably persisted
+// to an SSTable during a flush.
+func (m *Memtable) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.data = make(map[string]*Entry, m.maxSize)
+}
+
 // IsFull returns true if the memtable has reached its maximum capacity.
 func (m *Memtable) IsFull() bool {
 	m.mu.RLock()
