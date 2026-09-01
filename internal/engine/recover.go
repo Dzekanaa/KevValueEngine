@@ -28,7 +28,7 @@ func (e *Engine) Recover() error {
 		}
 	}
 
-	// TODO: add comment
+	// Replay all WAL entries to restore the Memtable state before the crash
 	for _, record := range records {
 		if record.Tombstone {
 			if err := e.memtable.Delete(string(record.Key)); err != nil {
