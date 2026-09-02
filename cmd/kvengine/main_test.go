@@ -1,7 +1,40 @@
+// Package main implements tests for the KevValueEngine CLI application.
+// RUNNING TESTS FROM TERMINAL
+//
+// Before running tests, clean up any existing data:
+// rm -rf data/
+//
+// Run all tests in the kvengine directory:
+// go test ./cmd/kvengine/... -v
+//
+// Run only unit tests (excluding benchmarks):
+// go test ./cmd/kvengine/... -v -run ^Test
+//
+// Run only benchmarks (excluding unit tests):
+// go test ./cmd/kvengine/... -v -bench=. -benchmem -run ^$
+//
+// Run a specific test:
+// go test ./cmd/kvengine/... -v -run TestHandleCommand_PUT
+//
+// Run benchmarks with extended runtime (default is ~1 second):
+// go test ./cmd/kvengine/... -bench=. -benchmem -benchtime=5s
+//
+// IMPORTANT: Each test uses setupTestEngine() which creates a temporary
+// directory for WAL and SSTable files. These temporary directories are
+// automatically cleaned up after each test, so there is no need to manually
+// delete test data.
+//
+// NOTE: If you want to test the full application with persistence across
+// runs, use the actual binary:
+//
+// go build -o kvengine ./cmd/kvengine/main.go
+// rm -rf data/                           # Clean data before test
+// ./kvengine                             # Run interactively
 package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,21 +47,21 @@ import (
 	"github.com/Dzekanaa/KevValueEngine/internal/wal"
 )
 
-// setupTestEngine creates a temporary engine for testing.
+// setupTestEngine creates a temporary engine for testing and benchmarking.
+// It accepts testing.TB interface to seamlessly support both *testing.T and *testing.B.
 // It initializes all components (BlockManager, WAL, Memtable, SSTable)
-// in a temporary directory that will be automatically cleaned up
-// after the test completes.
-func setupTestEngine(t *testing.T) (*engine.Engine, string) {
+// in a temporary directory that will be automatically cleaned up.
+func setupTestEngine(t testing.TB) (*engine.Engine, string) {
 	t.Helper()
 
 	tempDir := t.TempDir()
 	walDir := filepath.Join(tempDir, "wal")
 	sstDir := filepath.Join(tempDir, "sstable")
 
-	if err := os.MkdirAll(walDir, dirPermissions); err != nil {
+	if err := os.MkdirAll(walDir, 0o755); err != nil {
 		t.Fatalf("failed to create WAL dir: %v", err)
 	}
-	if err := os.MkdirAll(sstDir, dirPermissions); err != nil {
+	if err := os.MkdirAll(sstDir, 0o755); err != nil {
 		t.Fatalf("failed to create SSTable dir: %v", err)
 	}
 
@@ -46,21 +79,26 @@ func setupTestEngine(t *testing.T) (*engine.Engine, string) {
 	return eng, tempDir
 }
 
-// captureOutput captures stdout output from a function.
-// Useful for testing console output without actually printing to terminal.
+// captureOutput captures stdout output from a function safely using a goroutine
+// to prevent potential deadlocks when the stdout buffer fills up.
 func captureOutput(f func()) string {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
+	outC := make(chan string)
+	// Pokretanje čitanja u zasebnoj gorutini sprečava blokiranje (deadlock)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		outC <- buf.String()
+	}()
+
 	f()
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	return buf.String()
+	return <-outC
 }
 
 // TestHandleCommand_PUT tests the PUT command with valid input.
@@ -85,7 +123,7 @@ func TestHandleCommand_PUT(t *testing.T) {
 func TestHandleCommand_GET(t *testing.T) {
 	eng, _ := setupTestEngine(t)
 
-	handleCommand(eng, "PUT testkey testvalue")
+	_ = handleCommand(eng, "PUT testkey testvalue")
 
 	output := captureOutput(func() {
 		err := handleCommand(eng, "GET testkey")
@@ -121,7 +159,7 @@ func TestHandleCommand_GET_NotFound(t *testing.T) {
 func TestHandleCommand_DELETE(t *testing.T) {
 	eng, _ := setupTestEngine(t)
 
-	handleCommand(eng, "PUT delkey delvalue")
+	_ = handleCommand(eng, "PUT delkey delvalue")
 
 	output := captureOutput(func() {
 		err := handleCommand(eng, "DELETE delkey")
@@ -134,7 +172,8 @@ func TestHandleCommand_DELETE(t *testing.T) {
 		t.Errorf("expected OK message, got: %s", output)
 	}
 
-	// Verify key is actually deleted
+	// NAPOMENA: Ako eng.Get vraća (nil, false) za obrisane stavke, ovo radi.
+	// Ako vaša implementacija vraća tombstone kao validan podatak, prilagodite proveru.
 	_, found := eng.Get("delkey")
 	if found {
 		t.Error("expected key to be deleted")
@@ -146,8 +185,8 @@ func TestHandleCommand_DELETE(t *testing.T) {
 func TestHandleCommand_DELETE_AfterDelete(t *testing.T) {
 	eng, _ := setupTestEngine(t)
 
-	handleCommand(eng, "PUT tempkey tempvalue")
-	handleCommand(eng, "DELETE tempkey")
+	_ = handleCommand(eng, "PUT tempkey tempvalue")
+	_ = handleCommand(eng, "DELETE tempkey")
 
 	output := captureOutput(func() {
 		err := handleCommand(eng, "GET tempkey")
@@ -166,7 +205,7 @@ func TestHandleCommand_DELETE_AfterDelete(t *testing.T) {
 func TestHandleCommand_PUT_WithSpaces(t *testing.T) {
 	eng, _ := setupTestEngine(t)
 
-	handleCommand(eng, "PUT greeting hello world from kvengine")
+	_ = handleCommand(eng, "PUT greeting hello world from kvengine")
 
 	value, found := eng.Get("greeting")
 	if !found {
@@ -282,7 +321,7 @@ func TestHandleCommand_FullScenario(t *testing.T) {
 		t.Errorf("DELETE failed: %v", err)
 	}
 
-	// Verify deletion
+	// Verify deletion (Prilagoditi ako eng.Get vraća true za tombstone)
 	_, found := eng.Get("user:3")
 	if found {
 		t.Error("expected user:3 to be deleted")
@@ -298,8 +337,23 @@ func TestHandleCommand_EmptyCommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty command")
 	}
-
 	if !bytes.Contains([]byte(err.Error()), []byte("empty command")) {
 		t.Errorf("expected empty command error, got: %v", err)
+	}
+}
+
+// BenchmarkHandleCommand_PUT measures the performance of PUT operations.
+// // Runs the PUT command multiple times and reports average execution time,
+// // memory allocations, and memory usage per operation.
+//
+// To run: go test ./cmd/kvengine/... -bench=BenchmarkHandleCommand_PUT -benchmem
+func BenchmarkHandleCommand_PUT(b *testing.B) {
+	eng, _ := setupTestEngine(b)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key%d", i)
+		value := fmt.Sprintf("value%d", i)
+		_ = handleCommand(eng, fmt.Sprintf("PUT %s %s", key, value))
 	}
 }
