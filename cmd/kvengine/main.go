@@ -75,7 +75,7 @@ func main() {
 	}
 
 	// Start REPL (Read-Eval-Print Loop)
-	fmt.Println("KeyValueEngine starting...\n")
+	fmt.Println("KeyValueEngine starting...")
 	fmt.Println("Commands:\nPUT key value\nGET key\nDELETE key\nEXIT")
 	fmt.Println()
 
