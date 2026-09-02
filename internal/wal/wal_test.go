@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -138,5 +139,47 @@ func TestRecoverResumesWithoutOverwriting(t *testing.T) {
 	}
 	if string(all[0].Key) != "k1" || string(all[1].Key) != "k2" || string(all[2].Key) != "k3" {
 		t.Fatal("records out of order or overwritten")
+	}
+}
+
+func TestCleanupRemovesOldSegments(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wal_test_cleanup")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	bm, err := blockmanager.New(4096, 10)
+	if err != nil {
+		t.Fatalf("failed to create block manager: %v", err)
+	}
+
+	wal := NewWAL(dir, bm, 4096, 2)
+	// 5 records with recordsPerSegment=2 -> segments 1, 2, 3 (3 is active)
+	for i := 0; i < 5; i++ {
+		wal.Write([]byte(fmt.Sprintf("k%d", i)), []byte("v"), false)
+	}
+	if wal.currentSegment != 3 {
+		t.Fatalf("expected currentSegment 3, got %d", wal.currentSegment)
+	}
+
+	if err := wal.Cleanup(); err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+
+	// segments 1 and 2 should be gone; segment 3 should remain
+	if _, err := os.Stat(wal.segmentPath(1)); !os.IsNotExist(err) {
+		t.Fatal("expected segment 1 to be deleted")
+	}
+	if _, err := os.Stat(wal.segmentPath(2)); !os.IsNotExist(err) {
+		t.Fatal("expected segment 2 to be deleted")
+	}
+	if _, err := os.Stat(wal.segmentPath(3)); os.IsNotExist(err) {
+		t.Fatal("expected segment 3 (active) to still exist")
+	}
+
+	// calling Cleanup again should be a no-op, not an error
+	if err := wal.Cleanup(); err != nil {
+		t.Fatalf("second cleanup call should be safe, got error: %v", err)
 	}
 }

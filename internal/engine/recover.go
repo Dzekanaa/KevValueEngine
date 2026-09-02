@@ -4,12 +4,8 @@ import "fmt"
 
 // Recover rebuilds the Memtable from the WAL on startup, replaying
 // every record in order (Put for normal records, Delete for tombstones).
-//
-// Marija i Niksa
-// TODO: implement this once Flush is working
-// end to end.
 func (e *Engine) Recover() error {
-	walRecords, err := e.wal.ReadAll()
+	walRecords, err := e.wal.Recover()
 	if err != nil {
 		return fmt.Errorf("engine (recover): failed to read WAL: %w", err)
 	}
@@ -18,18 +14,8 @@ func (e *Engine) Recover() error {
 		return nil // Nothing to recover
 	}
 
-	// Converts wal.Record into engine.WALRecord
-	records := make([]WALRecord, len(walRecords))
-	for i, r := range walRecords {
-		records[i] = WALRecord{
-			Key:       r.Key,
-			Value:     r.Value,
-			Tombstone: r.Tombstone,
-		}
-	}
-
 	// Replay all WAL entries to restore the Memtable state before the crash
-	for _, record := range records {
+	for _, record := range walRecords {
 		if record.Tombstone {
 			if err := e.memtable.Delete(string(record.Key)); err != nil {
 				return fmt.Errorf("engine (recover): failed to replay delete: %w", err)
@@ -40,9 +26,6 @@ func (e *Engine) Recover() error {
 			}
 		}
 	}
-
-	// Marija
-	// TODO: Mark which WAL segments need to be deleted
 
 	return nil
 }

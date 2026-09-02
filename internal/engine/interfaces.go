@@ -3,7 +3,10 @@
 // startup recovery.
 package engine
 
-import "github.com/Dzekanaa/KevValueEngine/internal/memtable"
+import (
+	"github.com/Dzekanaa/KevValueEngine/internal/memtable"
+	"github.com/Dzekanaa/KevValueEngine/internal/wal"
+)
 
 // ---------------------------------------------------------------------
 // These are the contracts engine depends on. Each college implements
@@ -19,9 +22,14 @@ type WAL interface {
 	// Memtable. Already implemented.
 	Write(key []byte, value []byte, tombstone bool) error
 
+	// Recover reads every record from every segment and repositions
+	// the WAL's write cursor to resume correctly afterward. Must be
+	// called at startup, before any writes. Used by engine.Recover.
+	Recover() ([]*wal.Record, error)
+
 	// ReadAll returns every record from every segment, oldest first.
 	// Used by Recover. Already implemented.
-	ReadAll() ([]*WALRecord, error)
+	ReadAll() ([]*wal.Record, error)
 
 	// Cleanup deletes every WAL segment older than the currently
 	// active one. Must only be called after a flush has durably
@@ -32,14 +40,6 @@ type WAL interface {
 	// existing DeleteSegment method: loop from segment 1 up to (not
 	// including) the current active segment and delete each one.
 	Cleanup() error
-}
-
-// WALRecord is the subset of a WAL record the engine needs to replay
-// it into the Memtable during recovery.
-type WALRecord struct {
-	Key       []byte
-	Value     []byte
-	Tombstone bool
 }
 
 // Memtable is the interface the engine uses for the in-memory write
