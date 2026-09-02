@@ -8,7 +8,8 @@ import (
 // mockWAL is an in-memory WAL used to test Engine logic without a real
 // WAL, tracking every write it receives.
 type mockWAL struct {
-	writes []mockWALWrite
+	writes         []mockWALWrite
+	recoverRecords []*wal.Record
 }
 
 type mockWALWrite struct {
@@ -21,6 +22,8 @@ func (m *mockWAL) Write(key []byte, value []byte, tombstone bool) error {
 	m.writes = append(m.writes, mockWALWrite{key, value, tombstone})
 	return nil
 }
+
+func (m *mockWAL) Recover() ([]*wal.Record, error) { return m.recoverRecords, nil }
 
 func (m *mockWAL) ReadAll() ([]*wal.Record, error) { return nil, nil }
 

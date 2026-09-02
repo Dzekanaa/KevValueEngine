@@ -1,6 +1,10 @@
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Dzekanaa/KevValueEngine/internal/wal"
+)
 
 func TestEnginePutWritesToWALBeforeMemtable(t *testing.T) {
 	wal := &mockWAL{}
@@ -147,5 +151,34 @@ func TestEngineGetNotFoundAnywhere(t *testing.T) {
 	_, found := e.Get("missing")
 	if found {
 		t.Fatal("expected a key that exists nowhere to be reported as not found")
+	}
+}
+
+func TestEngineRecoverReplaysWALIntoMemtable(t *testing.T) {
+	wal := &mockWAL{
+		recoverRecords: []*wal.Record{
+			{Key: []byte("key1"), Value: []byte("value1"), Tombstone: false},
+			{Key: []byte("key2"), Value: []byte("value2"), Tombstone: false},
+			{Key: []byte("key2"), Tombstone: true}, // key2 was later deleted
+		},
+	}
+	mt := newMockMemtable()
+	e := New(wal, mt, &mockSSTableWriter{}, &mockSSTableReader{})
+
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+
+	val, found, tombstone := mt.Get("key1")
+	if !found || tombstone {
+		t.Fatal("expected key1 to be present after recovery")
+	}
+	if string(val) != "value1" {
+		t.Fatalf("expected value1, got %s", val)
+	}
+
+	_, found, tombstone = mt.Get("key2")
+	if !found || !tombstone {
+		t.Fatal("expected key2 to be recovered as a tombstone")
 	}
 }

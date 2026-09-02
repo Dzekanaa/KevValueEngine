@@ -220,3 +220,15 @@ func TestNew_UsesMaxSizeConstantWhenZeroOrLower(t *testing.T) {
 		t.Errorf("expected maxSize to be %d, got %d", MaxSize, mt.GetMaxSize())
 	}
 }
+
+func TestClear_RemovesAllEntries(t *testing.T) {
+	mt := New(100)
+	mt.Put("key1", []byte("value1"))
+	mt.Put("key2", []byte("value2"))
+
+	mt.Clear()
+
+	if mt.Size() != 0 {
+		t.Fatalf("expected 0 entries after clear, got %d", mt.Size())
+	}
+}

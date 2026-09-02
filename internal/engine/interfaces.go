@@ -22,6 +22,11 @@ type WAL interface {
 	// Memtable. Already implemented.
 	Write(key []byte, value []byte, tombstone bool) error
 
+	// Recover reads every record from every segment and repositions
+	// the WAL's write cursor to resume correctly afterward. Must be
+	// called at startup, before any writes. Used by engine.Recover.
+	Recover() ([]*wal.Record, error)
+
 	// ReadAll returns every record from every segment, oldest first.
 	// Used by Recover. Already implemented.
 	ReadAll() ([]*wal.Record, error)
@@ -29,16 +34,12 @@ type WAL interface {
 	// Cleanup deletes every WAL segment older than the currently
 	// active one. Must only be called after a flush has durably
 	// persisted the Memtable to an SSTable — never before.
-	// Already implemented.
+	//
+	// Marija
+	// TODO: implement this. It can build directly on the
+	// existing DeleteSegment method: loop from segment 1 up to (not
+	// including) the current active segment and delete each one.
 	Cleanup() error
-}
-
-// WALRecord is the subset of a WAL record the engine needs to replay
-// it into the Memtable during recovery.
-type WALRecord struct {
-	Key       []byte
-	Value     []byte
-	Tombstone bool
 }
 
 // Memtable is the interface the engine uses for the in-memory write
