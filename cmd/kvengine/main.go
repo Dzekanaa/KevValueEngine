@@ -48,6 +48,7 @@ func main() {
 	walRecords, err := walInstance.Recover()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to recover from WAL: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Initialize Memtable
