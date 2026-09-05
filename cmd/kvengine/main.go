@@ -63,11 +63,11 @@ func main() {
 	if len(walRecords) > 0 {
 		for _, record := range walRecords {
 			if record.Tombstone {
-				if err := eng.Delete(string(record.Key)); err != nil {
+				if err := mt.Delete(string(record.Key)); err != nil {
 					fmt.Fprintf(os.Stderr, "recovery: failed to replay delete for key %s: %v\n", record.Key, err)
 				}
 			} else {
-				if err := eng.Put(string(record.Key), record.Value); err != nil {
+				if err := mt.Put(string(record.Key), record.Value); err != nil {
 					fmt.Fprintf(os.Stderr, "recovery: failed to replay put for key %s: %v\n", record.Key, err)
 				}
 			}
@@ -132,7 +132,7 @@ func handleCommand(eng *engine.Engine, input string) error {
 
 		value, found := eng.Get(key)
 		if !found {
-			fmt.Printf("(nil)\n")
+			fmt.Printf("Key is not found\n")
 		} else {
 			fmt.Printf("\"%s\"\n", string(value))
 		}
